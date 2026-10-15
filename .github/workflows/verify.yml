@@ -1,0 +1,80 @@
+# Runs the same gate contributors run locally, on every push and PR.
+#
+# Two jobs that matter:
+#   verify  — typecheck + 228 tests. These were green on one machine only until
+#             this workflow existed; nothing caught a regression before it landed.
+#   guard   — the pre-publication scan. The pre-push hook is local-only because
+#             .git/hooks is not committed, so this is what actually protects a
+#             clone made by anyone else.
+#
+# A fifth protocol problem: ffmpeg is not on a stock runner image, and
+# transcode-design.test.ts would then skip its real-decode cases and report green
+# while proving nothing. Installing it keeps those cases from silently degrading.
+
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # ffmpeg keeps test/transcode-design.test.ts from skipping its
+      # real-decode assertions, which would otherwise pass vacuously.
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history, so the guard sees committed content rather than the
+          # working tree of a shallow clone.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Pre-publication guard
+        run: node scripts/check-publish.mjs
+
+      - name: Report what was scanned
+        run: |
+          echo "files the guard inspected:"
+          git ls-files | wc -l
+          echo ""
+          echo "confirmed excluded from the repository:"
+          for p in .env .dev.vars ui/vendor/vendor.css node_modules/x.js .wrangler/state dist/index.js; do
+            if git check-ignore -q -- "$p"; then echo "  ignored: $p"; else echo "  NOT IGNORED: $p"; fi
+          done

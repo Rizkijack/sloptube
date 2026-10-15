@@ -113,7 +113,7 @@ see `saltMissing: true` on `report.filed` events and one error in the log.
 ### 4. Prepare assets and schema
 
 ```bash
-npm run assets:prepare       # fetches the vendor stylesheets into ui/vendor/ (see the licence note)
+npm run assets:prepare       # fetches the vendor stylesheets into ui/vendor/ (see the licence section)
 npm run db:migrate:remote    # applies every file in migrations/, in order (0001 schema, 0002 moderation)
 ```
 
@@ -470,15 +470,30 @@ surrounding line for a human to judge, so expect a few low-confidence hits
 `.git/hooks/` is not committed, so the hook protects only this machine. Run the
 script manually anywhere else.
 
-| File | Covers |
-|---|---|
-| `test/auth.test.ts` | base58/base64url codecs, `did:key` parsing, the exact signing payload, and a **real Ed25519 sign + verify round trip** through `authenticate()`, plus replay, clock-skew, wrong-key and body-tamper rejection. |
-| `test/ids.test.ts` | id generation, `cleanText` / `cleanTag` / `cleanTags` / `cleanDisplayName`, truncation, slugs and injection attempts. |
-| `test/renderer.test.ts` | `formatDuration`, `formatRelative`, `richGrid` / `videoRenderer` output shape, media URL resolution. |
-| `test/http.test.ts` | `matchPath` matching and param extraction, error mapping, `handle()` not leaking internals. |
-| `test/rate-limiter.test.ts` | Window reset, cost accounting, retry-after, and `enforceLimit` fail-open behaviour. |
+228 tests across 10 files:
+
+| File | Tests | Covers |
+|---|---|---|
+| `test/auth.test.ts` | 36 | base58/base64url codecs, `did:key` parsing, the exact signing payload, and a **real Ed25519 sign + verify round trip** through `authenticate()`, plus replay, clock-skew, wrong-key and body-tamper rejection. |
+| `test/ids.test.ts` | 40 | id generation, `cleanText` / `cleanTag` / `cleanTags` / `cleanDisplayName`, truncation, slugs and injection attempts. |
+| `test/renderer.test.ts` | 29 | `formatDuration`, `formatRelative`, `richGrid` / `videoRenderer` output shape, media URL resolution. |
+| `test/moderation.test.ts` | 32 | report dedup, the 7-day hold and its expiry, the operator actions including `applied: false` on a no-op, constant-time auth, and that no CORS header reaches the operator surface. |
+| `test/pipeline.test.ts` | 21 | the probe → transcode → scan state machine, lease behaviour, and that every refund and quota charge is guarded by its compare-and-set. |
+| `test/rate-limiter.test.ts` | 19 | Window reset, cost accounting, retry-after, and `enforceLimit` fail-open behaviour. |
+| `test/http.test.ts` | 18 | `matchPath` matching and param extraction, error mapping, `handle()` not leaking internals. |
+| `test/transcode-design.test.ts` | 15 | the single-pass CMAF layout, plus a negative control that reproduces the rejected per-segment design. Its ffmpeg-driven cases run when ffmpeg is present. |
+| `test/ui-render.test.ts` | 13 | the browser boot path and the offline render against `ui/seed.json`, through a Node DOM shim. |
+| `test/migrations.test.ts` | 5 | the real migration files applied to **`node:sqlite`**, so the expression UNIQUE index backing report dedup is exercised by a real engine rather than a fake. |
+
+`test/dom-shim.ts` is a helper, not a suite.
 
 There are no integration tests against a live Cloudflare runtime; they cannot run outside `wrangler dev`/`deploy`.
+
+The moderation and pipeline suites run against hand-written SQL fakes, which is
+a real limitation — an emulator is only as faithful as its author, and it is how
+an unguarded refund and a CORS leak both passed a green suite once. The pieces
+most likely to diverge (the dedup index, NULL comparison) are therefore also
+covered against real SQLite in `test/migrations.test.ts`.
 
 `test/fixtures/` holds no committed media. `test/transcode-design.test.ts` generates its own source clip and deletes it afterwards, and its ffmpeg-driven cases are skipped when `ffmpeg` is absent — which is also why they do not silently pass: the source-text assertions remain, and the real decode checks are reported as skipped.
 
@@ -499,6 +514,17 @@ There are no integration tests against a live Cloudflare runtime; they cannot ru
 - **The R2 credential is bucket-wide, and ffmpeg runs as the same uid as the signer.** Credentials no longer travel in argv (`/proc/<pid>/cmdline` is world-readable) — they go in the environment, which only the process owner can read. That is not isolation: a compromised ffmpeg can still read same-uid secrets. Prefix-scoped R2 tokens would be the real fix; R2 does not offer per-prefix scoping today, so the mitigations are the hardened ffmpeg invocation (`-protocol_whitelist file,pipe`, non-root, hard timeout, ephemeral container) and keeping the container's HTTP port unreachable from outside.
 - **`R2_PUBLIC_BASE` must not front a bucket whose objects skip the Worker's checks.** When it is set, media is served by the CDN and the `ready`/`clean`/`public` gate plus the `*/source` deny-list do not run. The shipped config leaves it empty, which routes media through `/media/*` where the gate is enforced.
 
-## Licence note
+## Licence
 
-Project code: see the repository. `ui/vendor/*.css` is fetched at build time and is **not** part of this repository — see the note above.
+**No licence file is present.** That is a deliberate statement, not an
+oversight: with no `LICENSE`, copyright defaults to *all rights reserved*. You
+may read the code; you may not copy, modify or redistribute it without permission.
+
+If you want reuse to be permitted, add one — `MIT` is the usual choice for a
+project of this shape, `AGPL-3.0` if you want anyone running a modified version
+as a service to publish their changes. That is a decision about what you want to
+happen to this code, so it is left to you rather than guessed.
+
+`ui/vendor/*.css` is fetched at build time by `scripts/prepare.mjs` and is **not**
+part of this repository — see the note above. It is Google's property and is
+never committed here.
