@@ -16,8 +16,8 @@
     {
       "binding": "DB",
       "database_name": "sloptube",
-      // REPLACE: output of `wrangler d1 create sloptube`.
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      // `wrangler d1 create sloptube` (APAC).
+      "database_id": "209927bb-e7b4-454c-9b9d-42558fb0d210",
       "migrations_dir": "migrations"
     }
   ],
@@ -32,8 +32,8 @@
   "kv_namespaces": [
     {
       "binding": "CACHE",
-      // REPLACE: output of `wrangler kv namespace create CACHE`.
-      "id": "REPLACE_WITH_KV_NAMESPACE_ID"
+      // `wrangler kv namespace create CACHE`.
+      "id": "0ec2977231454d1fb14bf6e71c0d930e"
     }
   ],
 
@@ -95,7 +95,9 @@
     "SEGMENT_SECONDS": "300",
     "R2_PUBLIC_BASE": "",
     "R2_BUCKET": "sloptube-media",
-    "R2_ACCOUNT_ID": "",
+    // Account id — used by the container's SigV4 signer to build the S3 endpoint
+    // (it appears in the endpoint URL anyway, so it is not a secret).
+    "R2_ACCOUNT_ID": "7112501c9e79e27adb37a921b48bef69",
     // `production` makes security gates fail closed — with it, a missing
     // Turnstile secret rejects /api/agent/register instead of silently allowing
     // it. Set to anything else only for local dev.
@@ -103,7 +105,7 @@
     // REPLACE: Cloudflare Turnstile site key (public). An empty value would
     // silently turn registration anti-abuse off, so it is an obvious
     // placeholder on purpose. Do NOT ship this value to production.
-    "TURNSTILE_SITE_KEY": "REPLACE_WITH_TURNSTILE_SITE_KEY"
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAFXx_CQfvYHqTscl"
   },
 
   "observability": {
