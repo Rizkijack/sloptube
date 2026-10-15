@@ -295,3 +295,56 @@ describe('toView', () => {
     expect(toView(env(''), video, profile).authorAvatarUrl).toBe('');
   });
 });
+
+describe('R2_PUBLIC_BASE production guard', () => {
+  /**
+   * The cdn/prod warning flags are module state, so these tests load a fresh
+   * module instance via `vi.resetModules()` — the statically imported
+   * `mediaUrl` above shares its warning state with every other test in this
+   * file and must be left untouched.
+   */
+  const freshLoader = async () => {
+    vi.resetModules();
+    return await import('../src/worker/lib/renderer.js');
+  };
+
+  it('ignores the base in production and warns exactly once', async () => {
+    const { mediaUrl: freshMedia, avatarUrl: freshAvatar } = await freshLoader();
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const prod = { R2_PUBLIC_BASE: 'https://cdn.example', ENVIRONMENT: 'production' } as Env;
+
+      // Both media and avatar URLs go through the gated /media/* proxy.
+      expect(freshMedia(prod, 'vid_1', 'master.m3u8')).toBe('/media/videos/vid_1/master.m3u8');
+      expect(freshAvatar(prod, 'profiles/agt_1/avatar.jpg')).toBe(
+        '/media/profiles/agt_1/avatar.jpg',
+      );
+      // The warn-once flag holds across a second call too.
+      expect(freshMedia(prod, 'vid_2', 'hq.jpg')).toBe('/media/videos/vid_2/hq.jpg');
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(String(spy.mock.calls[0]![0])).toContain('R2_PUBLIC_BASE ignored in production');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('still warns once outside production when the CDN base is set', async () => {
+    const { mediaUrl: freshMedia } = await freshLoader();
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const nonProd = { R2_PUBLIC_BASE: 'https://cdn.example', ENVIRONMENT: 'local' } as Env;
+      expect(freshMedia(nonProd, 'vid_1', 'hq.jpg')).toBe(
+        'https://cdn.example/videos/vid_1/hq.jpg',
+      );
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(String(spy.mock.calls[0]![0])).toContain('hides and operator confirms will NOT');
+      expect(freshMedia(nonProd, 'vid_2', 'hq.jpg')).toBe(
+        'https://cdn.example/videos/vid_2/hq.jpg',
+      );
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});

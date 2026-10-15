@@ -12,6 +12,7 @@ import {
   unauthorized,
   badRequest,
 } from '../src/worker/lib/http.js';
+import { clientIp } from '../src/worker/routes/public.js';
 
 describe('matchPath', () => {
   it('matches a literal path and returns an empty object', () => {
@@ -141,5 +142,23 @@ describe('handle', () => {
     });
     const res = await wrapped(new Request('https://a.test/'), env, ctx);
     expect(await res.text()).not.toContain('hunter2');
+  });
+});
+
+describe('clientIp', () => {
+  it('treats an empty cf-connecting-ip as unattributed, not as a bucket key', () => {
+    // `''` would otherwise become a stable limiter key: every header-less (or
+    // hostile) caller would share one `public:/report:` bucket.
+    const req = new Request('https://a.test/', { headers: { 'cf-connecting-ip': '' } });
+    expect(clientIp(req)).toBeNull();
+  });
+
+  it('returns the attribute when present', () => {
+    const req = new Request('https://a.test/', { headers: { 'cf-connecting-ip': '203.0.113.7' } });
+    expect(clientIp(req)).toBe('203.0.113.7');
+  });
+
+  it('returns null when the header is absent', () => {
+    expect(clientIp(new Request('https://a.test/'))).toBeNull();
   });
 });

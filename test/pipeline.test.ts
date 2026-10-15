@@ -26,7 +26,9 @@ const container = vi.hoisted(() => ({
 
 vi.mock('../src/worker/container-media.js', () => container);
 
-const { handlePipelineBatch, buildMasterPlaylist } = await import('../src/worker/lib/pipeline.js');
+const { handlePipelineBatch, buildMasterPlaylist, sweepOrphans } = await import(
+  '../src/worker/lib/pipeline.js'
+);
 
 /* ------------------------------------------------------------------ *
  * A DB fake that understands only the statements the pipeline issues.
@@ -197,7 +199,20 @@ function makeEnv(video: VideoRow): { env: Env; state: FakeState; sent: PipelineM
         },
         async all<T>(): Promise<{ results: T[] }> {
           const a = stmt._args;
-          if (/SELECT id FROM videos WHERE status IN/.test(norm)) return { results: [] as T[] };
+          if (/SELECT id FROM videos WHERE status IN/.test(norm)) {
+            // sweepOrphans: `WHERE status IN ('uploaded','probed') AND updated_at < ?`
+            // LIMIT 500. The status values are SQL literals; only `updated_at`
+            // is bound. A fake that returned every row regardless would let
+            // stale-row logic pass against non-stale data.
+            const statuses = (/status IN \(([^)]*)\)/.exec(norm)?.[1] ?? '')
+              .split(',')
+              .map((s) => s.trim().replace(/^'|'$/g, ''));
+            const cutoff = Number(a[0] ?? 0);
+            const rows = [...state.videos.values()].filter(
+              (v) => statuses.includes(v.status) && Number(v.updated_at) < cutoff,
+            );
+            return { results: rows.map((v) => ({ id: v.id })) as T[] };
+          }
           if (/SELECT r2_key FROM video_segments/.test(norm)) {
             const list = state.segments.get(String(a[0])) ?? [];
             return { results: list.map((s) => ({ r2_key: s.r2_key })) as T[] };
@@ -608,5 +623,77 @@ describe('chargeUsage', () => {
     const { chargeUsage } = await import('../src/worker/lib/db.js');
     const { env } = makeEnv(row());
     expect(await chargeUsage(env, 'agt_nope', 10)).toBe(false);
+  });
+});
+
+describe('sweepOrphans', () => {
+  const STALE = 0; // row()`s default updated_at — always older than the 24h cutoff
+  const FRESH = Date.now();
+
+  it('sweeps a stale uploaded video: fails the row, purges derived objects, keeps the source, refunds exactly once', async () => {
+    const { env, state } = makeEnv(row({ status: 'uploaded', updated_at: STALE }));
+    state.agents.get('agt_1')!.used_bytes = 1000;
+    // Record KV writes so the test can pin what the sweep does NOT do.
+    const cachePuts: string[] = [];
+    (env as unknown as Record<string, unknown>).CACHE = {
+      get: async () => null,
+      put: async (key: string) => {
+        cachePuts.push(key);
+      },
+    };
+
+    expect(await sweepOrphans(env)).toBe(1);
+
+    const v = state.videos.get('vid_1')!;
+    expect(v.status).toBe('failed');
+    // r2.ts: the orphan sweep passes `keepSource: true` — an incomplete
+    // upload's raw source is the agent's own bytes and worth nothing to
+    // anyone; quarantine is the path that deletes it.
+    expect(state.deleted).toContain('videos/vid_1/init.mp4');
+    expect(state.deleted).toContain('videos/vid_1/seg_000000.m4s');
+    expect(state.deleted).not.toContain('videos/vid_1/source');
+    // The refund lands exactly once and clamps at what was charged.
+    expect(state.agents.get('agt_1')!.used_bytes).toBe(0);
+    // A sweep never touches the feed cache — the video was never published,
+    // so bumpFeedVersion (and any KV write) would be spurious invalidation.
+    expect(cachePuts).toEqual([]);
+  });
+
+  it('sweeps a stale probed video the same way', async () => {
+    const { env, state } = makeEnv(row({ status: 'probed', updated_at: STALE }));
+
+    expect(await sweepOrphans(env)).toBe(1);
+    expect(state.videos.get('vid_1')!.status).toBe('failed');
+    expect(state.deleted).not.toContain('videos/vid_1/source');
+  });
+
+  it('leaves a freshly-uploaded video alone', async () => {
+    const { env, state } = makeEnv(
+      row({ status: 'uploaded', updated_at: FRESH, bytes: 4096 }),
+    );
+
+    expect(await sweepOrphans(env)).toBe(0);
+    expect(state.videos.get('vid_1')!.status).toBe('uploaded');
+    expect(state.deleted).toEqual([]);
+    expect(state.agents.get('agt_1')!.used_bytes).toBe(4096);
+  });
+
+  it('does not touch rows outside the uploaded/probed set', async () => {
+    // A ready+public video that some data corruption marked stale must never
+    // be "swept" — its storage is live content charged to a real publish.
+    const { env, state } = makeEnv(
+      row({
+        status: 'ready',
+        scan_state: 'clean',
+        visibility: 'public',
+        updated_at: STALE,
+        bytes: 4096,
+      }),
+    );
+
+    expect(await sweepOrphans(env)).toBe(0);
+    expect(state.videos.get('vid_1')!.status).toBe('ready');
+    expect(state.deleted).toEqual([]);
+    expect(state.agents.get('agt_1')!.used_bytes).toBe(4096);
   });
 });

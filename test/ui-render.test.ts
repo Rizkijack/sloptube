@@ -14,6 +14,7 @@ import { accessibleNames, installDom, type ShimGlobal } from './dom-shim.js';
 
 const UI = resolve(import.meta.dirname, '..', 'ui');
 const seed = JSON.parse(readFileSync(resolve(UI, 'seed.json'), 'utf8'));
+const INDEX_HTML = readFileSync(resolve(UI, 'index.html'), 'utf8');
 
 let dom: ShimGlobal;
 
@@ -140,5 +141,44 @@ describe('never uses innerHTML', () => {
     const assignments = source.match(/\.innerHTML\s*=/g) ?? [];
     expect(assignments).toEqual([]);
     expect(source).not.toMatch(/insertAdjacentHTML/);
+  });
+});
+
+describe('vendor CSS is load-async, never render-blocking', () => {
+  /** Every <link …> tag outside <noscript>: the ones JS-capable browsers will
+   *  actually apply during load. The noscript fallback is intentionally
+   *  blocking and checked separately below. */
+  const linkTags = (
+    INDEX_HTML.replace(/<noscript>[\s\S]*?<\/noscript>/g, '').match(/<link\b[^>]*>/g) ?? []
+  ).map((tag) => tag);
+  const vendorLink = (tag: string) => /href="vendor\/vendor\.css"/.test(tag);
+  const blockingLink = (tag: string) => !/\bmedia=/.test(tag);
+
+  it('has no render-blocking <link> for vendor/vendor.css', () => {
+    const blocking = linkTags.filter((t) => vendorLink(t) && blockingLink(t));
+    expect(blocking, `blocking vendor.css link found: ${blocking.join(' | ')}`).toEqual([]);
+  });
+
+  it('loads vendor.css through the media-swap trick with an onload swap-in', () => {
+    // 3+ MB bundle must skip render blocking: media="print" doesn't contend
+    // with FCP, and onload flips it to all.
+    expect(INDEX_HTML).toMatch(
+      /<link\b[^>]*href="vendor\/vendor\.css"[^>]*media="print"[^>]*onload="this\.media='all'"/,
+    );
+  });
+
+  it('keeps a <noscript> fallback so non-JS clients still get the theme', () => {
+    expect(INDEX_HTML).toMatch(
+      /<noscript>\s*<link rel="stylesheet" href="vendor\/vendor\.css"/,
+    );
+  });
+
+  it('keeps the tiny critical shell render-blocking on purpose', () => {
+    // The flip side: tokens.css + app.css must NOT accidentally inherit the
+    // async treatment — they are the whole theme when the vendor bundle 404s.
+    expect(linkTags.some((t) => /href="vendor\/tokens\.css"/.test(t) && blockingLink(t))).toBe(
+      true,
+    );
+    expect(linkTags.some((t) => /href="app\.css"/.test(t) && blockingLink(t))).toBe(true);
   });
 });
