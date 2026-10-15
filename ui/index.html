@@ -10,10 +10,14 @@
       Vendor bundle from scripts/prepare.mjs. If it was never fetched the file
       simply 404s and tokens.css + app.css carry the whole theme.
     -->
-    <link rel="stylesheet" href="vendor/vendor.css" />
+    <!-- Critical, tiny: design tokens + app shell. Render-blocking on purpose. -->
     <!-- Mandatory fallback: light --yt-* design tokens. Always written by prepare.mjs. -->
     <link rel="stylesheet" href="vendor/tokens.css" />
     <link rel="stylesheet" href="app.css" />
+    <!-- Heavy vendor bundle (3+ MB) is loaded asynchronously to keep FCP fast.
+         media="print" skips blocking render; onload swaps it in. <noscript> fallback. -->
+    <link rel="stylesheet" href="vendor/vendor.css" media="print" onload="this.media='all'" />
+    <noscript><link rel="stylesheet" href="vendor/vendor.css" /></noscript>
   </head>
 
   <body>

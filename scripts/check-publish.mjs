@@ -169,6 +169,17 @@ if (existsSync(wranglerPath)) {
 
 // ---------------------------------------------------------------------------
 
+// 5. R2_PUBLIC_BASE must stay empty in production: a populated value routes
+// media straight from R2 and disables report-driven takedowns and holds.
+if (existsSync(wranglerPath)) {
+  const w2 = readFileSync(wranglerPath, 'utf8');
+  const wm = new RegExp(`"ENVIRONMENT"\\\\s*:\\\\s*"([^"]*)"`).exec(w2);
+  const rb = new RegExp(`"R2_PUBLIC_BASE"\\\\s*:\\\\s*"([^"]*)"`).exec(w2);
+  if (wm && wm[1] === 'production' && rb && rb[1].trim() !== '') {
+    problems.push('wrangler.jsonc: R2_PUBLIC_BASE must be empty in production (takedowns disabled otherwise)');
+  }
+}
+
 console.log(`checked ${files.length} file(s)${stagedOnly ? ' (staged only)' : ''}`);
 if (warnings.length) {
   console.log(`\n${warnings.length} low-confidence string(s) — eyeball these:`);

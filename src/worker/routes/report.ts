@@ -36,7 +36,7 @@ export async function submitReport(
   env: Env,
   body: Record<string, unknown>,
   ip: string | null,
-): Promise<{ accepted: true; counted: boolean }> {
+): Promise<{ accepted: true }> {
   if (ip) await enforceLimit(env, `report:${ip}`, POLICIES.report);
 
   const videoId = cleanText(body.videoId, 64);
@@ -55,7 +55,7 @@ export async function submitReport(
   const video = await getVideo(env, videoId);
   if (!video) {
     await logEvent(env, 'report.filed', { videoId, unknown: true, saltMissing: reportSaltMissing(env) });
-    return { accepted: true, counted: false };
+    return { accepted: true };
   }
 
   const createdAt = now();
@@ -116,7 +116,7 @@ export async function submitReport(
     saltMissing: reportSaltMissing(env),
   });
 
-  return { accepted: true, counted };
+  return { accepted: true };
 }
 
 async function readJson(request: Request): Promise<Record<string, unknown>> {

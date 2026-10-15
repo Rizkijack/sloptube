@@ -36,7 +36,7 @@ const FEED_TTL_S = 30;
  * `null` — failing open is correct here (availability over throttling).
  */
 export function clientIp(request: Request): string | null {
-  return request.headers.get('cf-connecting-ip');
+  return request.headers.get('cf-connecting-ip') || null;
 }
 
 /** Rate-limit keyed on the real client, or skipped entirely when there is none. */

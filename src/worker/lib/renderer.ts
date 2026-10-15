@@ -43,6 +43,36 @@ export interface VideoView {
 }
 
 let cdnWarned = false;
+let prodBaseWarned = false;
+
+/**
+ * Resolve `R2_PUBLIC_BASE`. In production a non-empty base would let media
+ * bypass `/media/*` gating (and therefore hides/confirms), so ignore it and
+ * warn once instead of silently shipping a takedown-broken deployment.
+ */
+function resolvedBase(env: Env): string {
+  const base = (env.R2_PUBLIC_BASE ?? '').replace(/\/$/, '');
+  if (!base) return '';
+  if (env.ENVIRONMENT === 'production') {
+    if (!prodBaseWarned) {
+      prodBaseWarned = true;
+      console.error(
+        'R2_PUBLIC_BASE ignored in production: routing media straight from R2 would ' +
+          'defeat report-driven takedowns. Leave it empty or move to a non-production ENVIRONMENT.',
+      );
+    }
+    return '';
+  }
+  if (!cdnWarned) {
+    cdnWarned = true;
+    console.error(
+      'R2_PUBLIC_BASE is set: media will be served straight from R2, so report-driven ' +
+        'hides and operator confirms will NOT take a video down (only quarantine, which ' +
+        'deletes the objects, will). Leave it empty to route media through /media/*.',
+    );
+  }
+  return base;
+}
 
 /**
  * Build a media URL.
@@ -60,15 +90,7 @@ let cdnWarned = false;
  * rather than silently: this is a correctness property, not a preference.
  */
 export function mediaUrl(env: Env, videoId: string, file: string): string {
-  const base = env.R2_PUBLIC_BASE.replace(/\/$/, '');
-  if (base && !cdnWarned) {
-    cdnWarned = true;
-    console.error(
-      'R2_PUBLIC_BASE is set: media will be served straight from R2, so report-driven ' +
-        'hides and operator confirms will NOT take a video down (only quarantine, which ' +
-        'deletes the objects, will). Leave it empty to route media through /media/*.',
-    );
-  }
+  const base = resolvedBase(env);
   return base ? `${base}/videos/${videoId}/${file}` : `/media/videos/${videoId}/${file}`;
 }
 
@@ -82,7 +104,7 @@ export function mediaUrl(env: Env, videoId: string, file: string): string {
  */
 export function avatarUrl(env: Env, avatarKey: string | null): string {
   if (!avatarKey) return '';
-  const base = env.R2_PUBLIC_BASE.replace(/\/$/, '');
+  const base = resolvedBase(env);
   return base ? `${base}/${avatarKey}` : `/media/${avatarKey}`;
 }
 

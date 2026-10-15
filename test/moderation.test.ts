@@ -350,7 +350,7 @@ describe('submitReport — one reporter is one report', () => {
   it('does not hide on a single report', async () => {
     const { env, store } = makeEnv(video());
     const res = await submitReport(env, report(), '203.0.113.7');
-    expect(res.counted).toBe(true);
+    expect(res).toEqual({ accepted: true });
     expect(store.videos.get('vid_1')!.visibility).toBe('public');
     expect(store.videos.get('vid_1')!.hold_until).toBeNull();
   });
@@ -360,8 +360,8 @@ describe('submitReport — one reporter is one report', () => {
     await submitReport(env, report(), '203.0.113.7');
     const second = await submitReport(env, report(), '203.0.113.7');
     const third = await submitReport(env, report(), '203.0.113.7');
-    expect(second.counted).toBe(false);
-    expect(third.counted).toBe(false);
+    expect(second).toEqual({ accepted: true });
+    expect(third).toEqual({ accepted: true });
     expect(store.reports).toHaveLength(1);
     // The bug: three requests from one actor used to reach the quorum.
     expect(store.videos.get('vid_1')!.visibility).toBe('public');
@@ -399,7 +399,7 @@ describe('submitReport — one reporter is one report', () => {
     // never-published draft. The reporter learns nothing either way.
     const { env, store } = makeEnv(video());
     const res = await submitReport(env, report('vid_nope'), '1.1.1.1');
-    expect(res).toEqual({ accepted: true, counted: false });
+    expect(res).toEqual({ accepted: true });
     expect(store.reports).toHaveLength(0);
   });
 });

@@ -302,26 +302,61 @@ op_transcode() {
             "playlist has $dur_lines EXTINF entries for $seg_count segments"
     fi
 
+    # Bounded parallel upload of every media segment. Serial per-segment
+    # sigv4+curl PUT was the measured Med-High bottleneck on multi-segment
+    # videos; one ffmpeg pass still produces all segments, so only the upload
+    # tail is parallelised. A small POSIX worker script keeps the curl code in
+    # one place instead of inlining it in xargs.
+    #
+    # shortcut: upload parallelism capped at 4 to bound memory, R2 connection and
+    # worker process pressure; raise only with measured benefit.
+    worker="$work/upload_one.sh"
+    cat >"$worker" <<'EOF'
+#!/bin/sh
+set -eu
+part="$1"
+name="$(basename "$part")"
+n="$(printf '%s' "$name" | sed "s/^seg_//; s/\\.m4s\$//" | sed 's/^0*//')"
+[ -n "$n" ] || n=0
+seg_key="$prefix/$name"
+seg_url="$(printf 'https://%s.r2.cloudflarestorage.com/%s/%s' "$account" "$bucket" "$seg_key")"
+seg_rc="$work/put-$name.rc"
+if ! SLOPTUBE_AK="$akid" SLOPTUBE_SK="$secret" python3 "$APP_DIR/sigv4.py" \
+        "$seg_rc" PUT "$seg_url" "$part" "$region" >/dev/null 2>&1; then
+    printf 'sign_failed: %s\n' "$seg_key" >&2
+    exit 1
+fi
+if ! timeout "$HARD_TIMEOUT" curl -K "$seg_rc" \
+        --fail --silent --show-error \
+        --proto '=https' --proto-redir '=https' --max-redirs 0 \
+        --retry 2 --retry-delay 1 \
+        -T "$part" "$seg_url" >/dev/null 2>&1; then
+    printf 'upload_failed: %s\n' "$seg_key" >&2
+    exit 1
+fi
+bytes="$(wc -c <"$part" | tr -d ' ')"
+seg_dur="$(sed -n "$((n + 1))p" "$work/durations.txt")"
+case "$seg_dur" in '' | *[!0-9.]*) seg_dur=0 ;; esac
+jq -c --argjson n "$n" --arg key "$seg_key" \
+    --argjson dur "$seg_dur" --argjson bytes "$bytes" \
+    '{n:$n, r2Key:$key, bytes:$bytes, durationS:$dur}' \
+    >"$work/seg-$name.json"
+EOF
+    chmod 0700 "$worker"
+
+    export prefix account bucket akid secret region work APP_DIR HARD_TIMEOUT
+
+    if ! printf '%s\0' "$work"/seg_*.m4s | xargs -0 -P 4 -n 1 "$worker"; then
+        fail_json upload_failed "could not upload one or more media segments"
+    fi
+
     segments_json="$work/segments.json"
     : >"$segments_json"
-    idx=1
     for part in "$work"/seg_*.m4s; do
         [ -f "$part" ] || continue
         name=$(basename "$part")
-        n=$(printf '%s' "$name" | sed 's/^seg_//; s/\.m4s$//' | sed 's/^0*//')
-        [ -n "$n" ] || n=0
-        seg_key="$prefix/$name"
-        seg_url=$(r2_url "$account" "$bucket" "$seg_key")
-        seg_rc="$work/put-seg.rc"
-        SLOPTUBE_AK="$akid" SLOPTUBE_SK="$secret" python3 "$APP_DIR/sigv4.py" "$seg_rc" PUT "$seg_url" "$part" "$region" \
-            || fail_json sign_failed "could not sign the upload of $seg_key"
-        s3_put "$seg_rc" "$seg_url" "$part" || fail_json upload_failed "could not upload $seg_key"
-        seg_dur=$(sed -n "${idx}p" "$durations_txt")
-        case "$seg_dur" in '' | *[!0-9.]*) seg_dur=0 ;; esac
-        jq -c --argjson n "$n" --arg key "$seg_key" --argjson dur "$seg_dur" \
-            --argjson bytes "$(wc -c <"$part" | tr -d ' ')" \
-            '{n:$n, r2Key:$key, bytes:$bytes, durationS:$dur}' >>"$segments_json"
-        idx=$((idx + 1))
+        [ -f "$work/seg-$name.json" ] || fail_json upload_failed "missing result for $name"
+        cat "$work/seg-$name.json" >>"$segments_json"
     done
 
     # Thumbnail: the feed advertises one per video, so it has to exist. One frame
@@ -378,7 +413,22 @@ op_scan() {
 
     # clamscan rather than clamdscan: no second daemon to supervise, no socket to
     # race on, and no per-request file-permission dance. The cost is reloading
-    # the signature database on every scan — see README "Known limitations".
+    # the signature database on every scan - see README "Known limitations".
+    #
+    # Engine evaluation (clamscan vs clamd):
+    #   * clamscan (default - kept): stateless; reloads the signature database
+    #     per scan, costing a few seconds; simpler and fits the non-root,
+    #     read-only container with no supervised daemon or socket.
+    #   * clamd/clamdscan (deferred): avoids the cold signature load (~1-3s)
+    #     and lowers memory churn, but needs a supervised daemon, Unix socket,
+    #     per-request scan permissions, and startup/health handling on the
+    #     read-only tree - heavier and riskier than one stateless launch.
+    # Default: keep clamscan. Trim note: measured cost is the cold signature
+    # load; `--quiet` was NOT added because it suppresses the per-file FOUND
+    # line this parser depends on, so only engine selection is a safe trim lever
+    # and it stays deferred until scan latency breaches the container window.
+    # If we switch, keep `--no-summary --infected --stdout` output shape so the
+    # verdict parsing below stays unchanged.
     set +e
     timeout "$HARD_TIMEOUT" clamscan --no-summary --infected --stdout \
         "$src" >"$work/scan.out" 2>"$work/scan.err"
