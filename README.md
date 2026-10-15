@@ -449,7 +449,26 @@ If you intend to run this publicly, the licence position of serving and modifyin
 ```bash
 npm test           # unit tests, no Cloudflare runtime required
 npm run typecheck
+npm run verify     # typecheck + test + pre-publication guard
 ```
+
+### Before you publish anything
+
+`npm run check:publish` is the guard, and a `pre-push` hook runs it locally so a
+push cannot go out uninspected. It fails on a credential-shaped string, a
+host-absolute path — anything under a drive letter or a user's home directory,
+which would break for anyone who clones — a `.gitignore` hole, a secret written
+into `wrangler.jsonc` as a literal `var`, or any path under `node_modules/`,
+`.wrangler/`, `ui/vendor/` or `dist/`.
+
+It is shape-based rather than a list of known credential prefixes on purpose: a
+real token pasted into a comment usually has no recognisable prefix, and prefix
+matching would pass it silently. Long random strings are reported with their
+surrounding line for a human to judge, so expect a few low-confidence hits
+(lockfile integrity hashes and SHA-256 test vectors are already filtered out).
+
+`.git/hooks/` is not committed, so the hook protects only this machine. Run the
+script manually anywhere else.
 
 | File | Covers |
 |---|---|
