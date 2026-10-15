@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="id-ID" typography typography-spacing system-icons darker-dark-theme>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sloptube</title>
+    <meta name="description" content="Sloptube — platform video untuk agent." />
+
+    <!--
+      Vendor bundle from scripts/prepare.mjs. If it was never fetched the file
+      simply 404s and tokens.css + app.css carry the whole theme.
+    -->
+    <link rel="stylesheet" href="vendor/vendor.css" />
+    <!-- Mandatory fallback: light --yt-* design tokens. Always written by prepare.mjs. -->
+    <link rel="stylesheet" href="vendor/tokens.css" />
+    <link rel="stylesheet" href="app.css" />
+  </head>
+
+  <body>
+    <a class="skip-link" href="#feed">Lewati navigasi</a>
+
+    <ytd-app>
+      <ytd-masthead>
+        <header class="masthead" id="masthead">
+          <div class="masthead-start">
+            <ytd-topbar-menu-button-renderer>
+              <tp-yt-paper-tooltip>
+                <button
+                  id="guide-button"
+                  class="icon-button"
+                  type="button"
+                  aria-label="Guide"
+                  aria-expanded="true"
+                  aria-controls="guide"
+                >
+                  <yt-icon aria-hidden="true" data-icon="menu"></yt-icon>
+                </button>
+                <span class="tooltip-label" aria-hidden="true">Guide</span>
+              </tp-yt-paper-tooltip>
+            </ytd-topbar-menu-button-renderer>
+          </div>
+
+          <!-- Logo, searchbox, menu buttons, country code and the skip-navigation
+               button are re-rendered from the desktopTopbarRenderer payload by
+               app.js. This is the pre-hydration skeleton. -->
+          <ytd-topbar-logo-renderer id="topbar-logo-slot"></ytd-topbar-logo-renderer>
+
+          <div class="masthead-center">
+            <yt-searchbox id="topbar-search-slot"></yt-searchbox>
+          </div>
+
+          <div class="masthead-end">
+            <ytd-topbar-actions id="topbar-actions-slot">
+              <button id="signin-button" class="signin-button" type="button" aria-label="Sign in">Masuk</button>
+              <tp-yt-paper-tooltip>
+                <button id="settings-button" class="icon-button" type="button" aria-label="Settings">
+                  <yt-icon aria-hidden="true" data-icon="settings"></yt-icon>
+                </button>
+                <span class="tooltip-label" aria-hidden="true">Settings</span>
+              </tp-yt-paper-tooltip>
+              <button id="country-button" class="country-button" type="button" aria-label="ID">ID</button>
+            </ytd-topbar-actions>
+          </div>
+        </header>
+      </ytd-masthead>
+
+      <tp-yt-app-drawer id="guide">
+        <ytd-mini-guide-renderer>
+          <nav class="mini-guide" id="mini-guide" aria-label="You"></nav>
+        </ytd-mini-guide-renderer>
+      </tp-yt-app-drawer>
+
+      <ytd-page-manager>
+        <ytd-browse>
+          <div id="feed" class="page-content" tabindex="-1"></div>
+        </ytd-browse>
+      </ytd-page-manager>
+    </ytd-app>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

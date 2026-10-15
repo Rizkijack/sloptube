@@ -1,0 +1,38 @@
+# dependencies
+node_modules/
+
+# wrangler local state (D1 miniflare db, R2 local buckets, containers build cache)
+.wrangler/
+
+# Google's proprietary stylesheets, fetched at build time by scripts/prepare.mjs.
+# Deliberately not committed - see the licence note in README.md.
+ui/vendor/
+
+# CMAF media segments are build artefacts, never source.
+*.m4s
+*.mpd
+
+# test/transcode-design.test.ts creates and removes this tree at runtime; an
+# interrupted run leaves committable garbage behind.
+test/fixtures/transcode-guard/
+
+# Playlists written by ffmpeg verification runs against test/fixtures/*.
+test/fixtures/*/master.m3u8
+
+# ffmpeg verification output (echoed into test/fixtures/out/) - regenerate, don't commit
+test/fixtures/out/
+
+# local secrets. R2 creds belong in `wrangler secret put`, never in a file.
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+
+# build output
+dist/
+
+# editor / OS noise
+.DS_Store
+Thumbs.db
+*.log

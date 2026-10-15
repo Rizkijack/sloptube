@@ -1,0 +1,112 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sloptube",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "assets": {
+    "directory": "./ui",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sloptube",
+      // REPLACE: output of `wrangler d1 create sloptube`.
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "sloptube-media"
+    }
+  ],
+
+  "kv_namespaces": [
+    {
+      "binding": "CACHE",
+      // REPLACE: output of `wrangler kv namespace create CACHE`.
+      "id": "REPLACE_WITH_KV_NAMESPACE_ID"
+    }
+  ],
+
+  "queues": {
+    "producers": [
+      { "binding": "PIPELINE_QUEUE", "queue": "sloptube-pipeline" }
+    ],
+    "consumers": [
+      {
+        "queue": "sloptube-pipeline",
+        "max_batch_size": 5,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "dead_letter_queue": "sloptube-dlq"
+      }
+    ]
+  },
+
+  "durable_objects": {
+    "bindings": [
+      { "name": "RATE_LIMITER", "class_name": "RateLimiter" },
+      { "name": "MediaExecutor", "class_name": "MediaExecutor" }
+    ]
+  },
+
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["RateLimiter", "MediaExecutor"]
+    }
+  ],
+
+  "containers": [
+    {
+      "class_name": "MediaExecutor",
+      "image": "./container/Dockerfile",
+      "max_instances": 4,
+      "name": "sloptube-media",
+      // standard-2 = 1 vCPU, 6 GiB memory, 12 GB disk. Without this the tier
+      // defaults to lite/basic (2-4 GB disk) and a 2 GiB source can exceed it,
+      // failing the transcode. See the MAX_UPLOAD_BYTES note in `vars`.
+      "instance_type": "standard-2"
+    }
+  ],
+
+  "triggers": {
+    "crons": ["*/10 * * * *"]
+  },
+
+  "vars": {
+    // MAX_UPLOAD_BYTES must stay below the chosen container instance_type's disk
+    // (standard-2 = 12 GB). The source, the transcode output and the mktemp work
+    // dir all live on that disk at once, so 2 GiB uploads fit comfortably; a
+    // larger limit needs a larger instance_type in `containers` above.
+    "MAX_UPLOAD_BYTES": "2147483648",
+    "MAX_DURATION_S": "14400",
+    "MAX_HEIGHT": "1080",
+    "SIGNUP_QUOTA_BYTES": "5368709120",
+    "SEGMENT_SECONDS": "300",
+    "R2_PUBLIC_BASE": "",
+    "R2_BUCKET": "sloptube-media",
+    "R2_ACCOUNT_ID": "",
+    // `production` makes security gates fail closed — with it, a missing
+    // Turnstile secret rejects /api/agent/register instead of silently allowing
+    // it. Set to anything else only for local dev.
+    "ENVIRONMENT": "production",
+    // REPLACE: Cloudflare Turnstile site key (public). An empty value would
+    // silently turn registration anti-abuse off, so it is an obvious
+    // placeholder on purpose. Do NOT ship this value to production.
+    "TURNSTILE_SITE_KEY": "REPLACE_WITH_TURNSTILE_SITE_KEY"
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}
